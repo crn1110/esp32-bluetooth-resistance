@@ -104,6 +104,26 @@
       display: none;
     }
     
+    #iosTips {
+      margin: 15px;
+      padding: 10px;
+      background-color: #e6f3ff;
+      border-radius: 5px;
+      font-size: 0.9rem;
+      color: #0066cc;
+      display: none;
+    }
+    
+    #errorMessage {
+      margin: 15px;
+      padding: 10px;
+      background-color: #ffebee;
+      border-radius: 5px;
+      font-size: 0.9rem;
+      color: #c62828;
+      display: none;
+    }
+    
     /* 平板和桌面布局 */
     @media (min-width: 768px) {
       body {
@@ -140,6 +160,13 @@
   <div id="mobileTips">
     移动端使用提示：请确保蓝牙已开启，并授予浏览器蓝牙权限。Android设备需要开启位置服务才能使用蓝牙功能。
   </div>
+  
+  <div id="iosTips">
+    iOS用户提示：苹果设备需要安装支持Web Bluetooth的浏览器(如Bluefy)才能连接ESP32设备。<br>
+    <a href="https://apps.apple.com/us/app/bluefy-web-ble-browser/id1492822055" target="_blank">点击下载Bluefy浏览器</a>
+  </div>
+  
+  <div id="errorMessage"></div>
 
   <div class="button-container">
     <button id="connectButton">连接ESP32蓝牙设备</button>
@@ -175,6 +202,8 @@
     const maxResistanceSpan = document.getElementById('maxResistance');
     const minResistanceSpan = document.getElementById('minResistance');
     const mobileTips = document.getElementById('mobileTips');
+    const iosTips = document.getElementById('iosTips');
+    const errorMessage = document.getElementById('errorMessage');
     
     // 图表相关变量
     let resistanceChart;
@@ -195,9 +224,44 @@
     let minResistance = Infinity;
     let startTime = null;
     
-    // 检测移动设备
-    if (/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-      mobileTips.style.display = 'block';
+    // 检测设备和浏览器兼容性
+    function checkDeviceCompatibility() {
+      const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+      const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+      const isAndroid = /Android/i.test(navigator.userAgent);
+      const isChrome = /Chrome/i.test(navigator.userAgent);
+      
+      // 显示移动端提示
+      if (isMobile) {
+        mobileTips.style.display = 'block';
+      }
+      
+      // 检查Web Bluetooth支持
+      if (!navigator.bluetooth) {
+        if (isIOS) {
+          iosTips.style.display = 'block';
+          connectButton.disabled = true;
+          showError('iOS设备需要使用支持Web Bluetooth的浏览器(如Bluefy)');
+        } else if (isAndroid && !isChrome) {
+          showError('请使用最新版Chrome浏览器以获得最佳蓝牙支持');
+        } else {
+          showError('您的浏览器不支持Web Bluetooth功能');
+        }
+        return false;
+      }
+      
+      return true;
+    }
+    
+    // 显示错误信息
+    function showError(message) {
+      errorMessage.textContent = message;
+      errorMessage.style.display = 'block';
+    }
+    
+    // 隐藏错误信息
+    function hideError() {
+      errorMessage.style.display = 'none';
     }
     
     // 初始化图表
@@ -248,13 +312,17 @@
     
     // 连接函数
     async function connectToESP32() {
+      if (!checkDeviceCompatibility()) return;
+      
       try {
         connectButton.disabled = true;
         disconnectButton.disabled = false;
+        hideError();
         
         // 重置数据和图表
         resetData();
         
+        // 请求蓝牙设备
         bluetoothDevice = await navigator.bluetooth.requestDevice({
           filters: [{ 
             name: 'ESP32_StrainGauge',
@@ -265,10 +333,12 @@
 
         bluetoothDevice.addEventListener('gattserverdisconnected', onDisconnected);
         
+        // 连接GATT服务器
         const server = await bluetoothDevice.gatt.connect();
         const service = await server.getPrimaryService('00001234-0000-1000-8000-00805f9b34fb');
         characteristic = await service.getCharacteristic('00004321-0000-1000-8000-00805f9b34fb');
         
+        // 开始通知
         await characteristic.startNotifications();
         characteristic.addEventListener('characteristicvaluechanged', updateResistanceValue);
         
@@ -277,18 +347,21 @@
       } catch (error) {
         console.error('连接失败:', error);
         onDisconnected();
-        alert('连接失败: ' + error.message);
         
-        // 移动端特定错误提示
-        if (/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-          if (error.message.includes('not found')) {
-            alert('请确保ESP32设备已开启蓝牙并处于可发现模式');
-          } else if (error.message.includes('permission')) {
-            alert('请授予浏览器蓝牙访问权限');
-          } else if (error.message.includes('location')) {
-            alert('Android设备需要开启位置服务才能使用蓝牙功能');
-          }
+        // 特定错误处理
+        let errorMsg = '连接失败: ' + error.message;
+        
+        if (error.message.includes('not found')) {
+          errorMsg = '未找到ESP32设备，请确保设备已开启蓝牙并处于可发现模式';
+        } else if (error.message.includes('permission')) {
+          errorMsg = '请授予浏览器蓝牙访问权限';
+        } else if (error.message.includes('location')) {
+          errorMsg = 'Android设备需要开启位置服务才能使用蓝牙功能';
+        } else if (error.message.includes('User cancelled')) {
+          errorMsg = '用户取消了设备选择';
         }
+        
+        showError(errorMsg);
       }
     }
 
@@ -302,6 +375,7 @@
         }
       } catch (error) {
         console.error('断开失败:', error);
+        showError('断开失败: ' + error.message);
       } finally {
         onDisconnected();
       }
@@ -377,10 +451,14 @@
       resistanceChart.update();
     }
 
-    // 初始化图表
-    document.addEventListener('DOMContentLoaded', initChart);
-    
+    // 初始化
+    function initializeApp() {
+      initChart();
+      checkDeviceCompatibility();
+    }
+
     // 事件绑定
+    document.addEventListener('DOMContentLoaded', initializeApp);
     connectButton.addEventListener('click', connectToESP32);
     disconnectButton.addEventListener('click', disconnectFromESP32);
   </script>
