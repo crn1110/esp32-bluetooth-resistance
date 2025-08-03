@@ -173,7 +173,7 @@
   <h1>ESP32蓝牙实时电阻测量系统</h1>
 
   <div id="mobileTips">
-    移动端使用提示：请确保蓝牙已开启，并授予浏览器蓝牙权限。Android设备需要开启位置服务才能使用蓝牙功能。安卓用户请使用Microsoft Edge浏览器访问本系统，如果您没有安装Edge浏览器，请到手机应用商店搜索"Microsoft Edge"进行下载。
+    移动端使用提示：请确保蓝牙已开启，并授予浏览器蓝牙权限。Android设备需要开启位置服务才能使用蓝牙功能。安卓用户请使用Microsoft Edge浏览器访问本系统。如果您没有安装Edge浏览器，请到手机应用商店搜索"Microsoft Edge"进行下载。
   </div>
 
   <div id="androidEdgeTip">
@@ -355,36 +355,46 @@
       if (!isCompatible) return;
       
       try {
-        connectButton.disabled = true;
-        disconnectButton.disabled = false;
-        hideError();
-        
-        // 重置数据和图表
-        resetData();
-        
-        // 请求蓝牙设备
-        bluetoothDevice = await navigator.bluetooth.requestDevice({
-          filters: [{ 
-            name: 'ESP32_StrainGauge',
-            services: ['00001234-0000-1000-8000-00805f9b34fb']
-          }],
-          optionalServices: ['00001234-0000-1000-8000-00805f9b34fb']
-        });
+    connectButton.disabled = true;
+    disconnectButton.disabled = false;
+    hideError();
+    
+    resetData();
+    
+    // 修改为更宽松的设备过滤
+    bluetoothDevice = await navigator.bluetooth.requestDevice({
+      acceptAllDevices: true,  // 先接受所有设备
+      optionalServices: ['00001234-0000-1000-8000-00805f9b34fb']
+    });
 
-        bluetoothDevice.addEventListener('gattserverdisconnected', onDisconnected);
-        
-        // 连接GATT服务器
-        const server = await bluetoothDevice.gatt.connect();
-        const service = await server.getPrimaryService('00001234-0000-1000-8000-00805f9b34fb');
-        characteristic = await service.getCharacteristic('00004321-0000-1000-8000-00805f9b34fb');
-        
-        // 开始通知
-        await characteristic.startNotifications();
-        characteristic.addEventListener('characteristicvaluechanged', updateResistanceValue);
-        
-        connectButton.textContent = '已连接';
-        startTime = Date.now();
-      } catch (error) {
+    bluetoothDevice.addEventListener('gattserverdisconnected', onDisconnected);
+    
+    // 增加连接超时处理
+    const connectionTimeout = setTimeout(() => {
+      throw new Error('连接超时，请重试');
+    }, 10000);
+    
+    const server = await bluetoothDevice.gatt.connect();
+    clearTimeout(connectionTimeout);
+
+        // 增加服务发现重试机制
+    let service, characteristic;
+    try {
+      service = await server.getPrimaryService('00001234-0000-1000-8000-00805f9b34fb');
+      characteristic = await service.getCharacteristic('00004321-0000-1000-8000-00805f9b34fb');
+    } catch (serviceError) {
+      console.log('尝试获取服务失败，正在列出所有服务...');
+      const services = await server.getPrimaryServices();
+      console.log('发现的服务:', services.map(s => s.uuid));
+      throw serviceError;
+    }
+    
+    await characteristic.startNotifications();
+    characteristic.addEventListener('characteristicvaluechanged', updateResistanceValue);
+    
+    connectButton.textContent = '已连接';
+    startTime = Date.now();
+  }  catch (error) {
         console.error('连接失败:', error);
         onDisconnected();
         
@@ -432,6 +442,11 @@
         bluetoothDevice.removeEventListener('gattserverdisconnected', onDisconnected);
         bluetoothDevice = null;
       }
+
+      // 添加重连选项
+    if (!errorMessage.textContent.includes('用户取消了设备选择')) {
+        connectButton.textContent = '重新连接';
+     }
       
       connectButton.disabled = false;
       disconnectButton.disabled = true;
@@ -503,5 +518,4 @@
     disconnectButton.addEventListener('click', disconnectFromESP32);
   </script>
 </body>
-
 </html>
