@@ -391,8 +391,11 @@
         
         // 第一步：请求蓝牙设备
         logDebug('正在请求蓝牙设备...');
-        bluetoothDevice = await navigator.bluetooth.requestDevice({
-          acceptAllDevices: true,
+       bluetoothDevice = await navigator.bluetooth.requestDevice({
+          filters: [{ 
+            name: 'ESP32_StrainGauge',
+            services: ['00001234-0000-1000-8000-00805f9b34fb']
+          }],
           optionalServices: ['00001234-0000-1000-8000-00805f9b34fb']
         });
         logDebug(`找到设备: ${bluetoothDevice.name || '未知设备'}`);
