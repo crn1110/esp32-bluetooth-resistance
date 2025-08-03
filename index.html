@@ -114,7 +114,7 @@
       display: none;
     }
 
-     #androidEdgeTip {
+    #androidEdgeTip {
       margin: 15px;
       padding: 10px;
       background-color: #e8f5e9;
@@ -132,6 +132,12 @@
       font-size: 0.9rem;
       color: #c62828;
       display: none;
+    }
+
+    .download-link {
+      color: #0066cc;
+      text-decoration: underline;
+      font-weight: bold;
     }
     
     /* 平板和桌面布局 */
@@ -160,7 +166,6 @@
       }
     }
   </style>
-  <!-- 引入Chart.js库 -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
@@ -176,8 +181,8 @@
   </div>
   
   <div id="iosTips">
-    iOS用户提示：苹果设备需要安装支持Web Bluetooth的浏览器(如Bluefy)才能连接ESP32设备。<br>
-    <a href="https://apps.apple.com/us/app/bluefy-web-ble-browser/id1492822055" target="_blank">点击下载Bluefy浏览器</a>
+    <strong>iOS用户提示：</strong>苹果设备需要安装支持Web Bluetooth的浏览器(如Bluefy)才能连接ESP32设备。<br>
+    <a href="https://apps.apple.com/us/app/bluefy-web-ble-browser/id1492822055" target="_blank" class="download-link">点击下载Bluefy浏览器</a>
   </div>
   
   <div id="errorMessage"></div>
@@ -217,6 +222,7 @@
     const minResistanceSpan = document.getElementById('minResistance');
     const mobileTips = document.getElementById('mobileTips');
     const iosTips = document.getElementById('iosTips');
+    const androidEdgeTip = document.getElementById('androidEdgeTip');
     const errorMessage = document.getElementById('errorMessage');
     
     // 图表相关变量
@@ -238,25 +244,29 @@
     let minResistance = Infinity;
     let startTime = null;
     
-    // 修改检测设备和浏览器兼容性函数
+    // 精确检测浏览器兼容性
     function checkDeviceCompatibility() {
       const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
       const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
       const isAndroid = /Android/i.test(navigator.userAgent);
-      const isEdge = /Edg/i.test(navigator.userAgent);
-      const isChrome = /Chrome/i.test(navigator.userAgent);
-      const isFirefox = /Firefox/i.test(navigator.userAgent);
       
-      // 显示移动端提示
+      // 精确浏览器检测
+      const isEdge = /Edg\/\d+/i.test(navigator.userAgent);
+      const isChrome = /Chrome\/\d+/i.test(navigator.userAgent) && !isEdge;
+      const isFirefox = /Firefox\/\d+/i.test(navigator.userAgent);
+      const isSupportedBrowser = isEdge || isChrome || isFirefox;
+      
+      // 显示移动端通用提示（对所有移动设备）
       if (isMobile) {
         mobileTips.style.display = 'block';
       }
       
-      // 显示平台特定提示
+      // 平台特定处理（仅在不兼容时显示提示）
       if (isIOS) {
-        iosTips.style.display = 'block';
-      } else if (isAndroid && !isEdge && !isChrome && !isFirefox) {
-        // 仅当Android用户使用非推荐浏览器时显示Edge提示
+        if (!navigator.bluetooth) {
+          iosTips.style.display = 'block';
+        }
+      } else if (isAndroid && !isSupportedBrowser) {
         androidEdgeTip.style.display = 'block';
       }
 
@@ -266,7 +276,10 @@
           showError('iOS设备需要使用支持Web Bluetooth的浏览器(如Bluefy)');
           connectButton.disabled = true;
         } else if (isAndroid) {
-          showError('当前浏览器不支持蓝牙功能，请使用Edge、Chrome或Firefox浏览器');
+          // 只有使用不兼容浏览器时才显示错误
+          if (!isSupportedBrowser) {
+            showError('当前浏览器不支持蓝牙功能，请使用Edge浏览器');
+          }
           connectButton.disabled = true;
         } else {
           showError('您的浏览器不支持Web Bluetooth功能');
@@ -337,7 +350,9 @@
     
     // 连接函数
     async function connectToESP32() {
-      if (!checkDeviceCompatibility()) return;
+      // 先检查兼容性
+      const isCompatible = checkDeviceCompatibility();
+      if (!isCompatible) return;
       
       try {
         connectButton.disabled = true;
@@ -476,11 +491,9 @@
       resistanceChart.update();
     }
 
-     // 修改初始化函数
+    // 初始化应用
     function initializeApp() {
       initChart();
-      // 获取新增的提示元素
-      const androidEdgeTip = document.getElementById('androidEdgeTip');
       checkDeviceCompatibility();
     }
 
@@ -489,6 +502,5 @@
     connectButton.addEventListener('click', connectToESP32);
     disconnectButton.addEventListener('click', disconnectFromESP32);
   </script>
-
 </body>
 </html>
