@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>ESP32蓝牙实时电阻测量系统</title>
+  <title>ESP32蓝牙电阻测量系统</title>
   <style>
     * {
       box-sizing: border-box;
@@ -94,34 +94,42 @@
       background-color: #fff;
     }
     
-    .info-panel {
+    #mobileTips {
       margin: 15px;
-      padding: 15px;
+      padding: 10px;
+      background-color: #fff9e6;
       border-radius: 5px;
       font-size: 0.9rem;
-      text-align: left;
-    }
-    
-    #mobileTips {
-      background-color: #fff9e6;
       color: #666;
       display: none;
     }
     
     #iosTips {
+      margin: 15px;
+      padding: 10px;
       background-color: #e6f3ff;
+      border-radius: 5px;
+      font-size: 0.9rem;
       color: #0066cc;
       display: none;
     }
-    
-    #androidEdgeTip {
+
+     #androidEdgeTip {
+      margin: 15px;
+      padding: 10px;
       background-color: #e8f5e9;
+      border-radius: 5px;
+      font-size: 0.9rem;
       color: #2e7d32;
       display: none;
     }
     
     #errorMessage {
+      margin: 15px;
+      padding: 10px;
       background-color: #ffebee;
+      border-radius: 5px;
+      font-size: 0.9rem;
       color: #c62828;
       display: none;
     }
@@ -159,21 +167,20 @@
 
   <h1>ESP32蓝牙实时电阻测量系统</h1>
 
-  <div id="mobileTips" class="info-panel">
-    <strong>移动端使用提示：</strong>请确保蓝牙已开启，并授予浏览器蓝牙权限。Android设备需要开启位置服务才能使用蓝牙功能。
+  <div id="mobileTips">
+    移动端使用提示：请确保蓝牙已开启，并授予浏览器蓝牙权限。Android设备需要开启位置服务才能使用蓝牙功能。
+  </div>
+
+  <div id="androidEdgeTip">
+    <strong>浏览器兼容性提示：</strong>请使用Microsoft Edge浏览器访问本系统。如果您没有安装Edge浏览器，请到手机应用商店搜索"Microsoft Edge"进行下载。
   </div>
   
-  <div id="iosTips" class="info-panel">
-    <strong>iOS用户提示：</strong>苹果设备需要安装支持Web Bluetooth的浏览器(如Bluefy)才能连接ESP32设备。<br>
-    <a href="https://apps.apple.com/us/app/bluefy-web-ble-browser/id1492822055" target="_blank" style="color: #0066cc; text-decoration: underline;">点击下载Bluefy浏览器</a>
+  <div id="iosTips">
+    iOS用户提示：苹果设备需要安装支持Web Bluetooth的浏览器(如Bluefy)才能连接ESP32设备。<br>
+    <a href="https://apps.apple.com/us/app/bluefy-web-ble-browser/id1492822055" target="_blank">点击下载Bluefy浏览器</a>
   </div>
   
-  <div id="androidEdgeTip" class="info-panel">
-    <strong>浏览器兼容性提示：</strong>请使用Microsoft Edge浏览器访问本系统。如果您没有安装Edge浏览器，请到手机应用商店搜索"Microsoft Edge"进行下载。<br><br>
-    <strong>注意：</strong>Chrome、Edge和Firefox浏览器均可正常使用，如果您正在使用这些浏览器但仍看到此提示，请忽略。
-  </div>
-  
-  <div id="errorMessage" class="info-panel"></div>
+  <div id="errorMessage"></div>
 
   <div class="button-container">
     <button id="connectButton">连接ESP32蓝牙设备</button>
@@ -210,7 +217,6 @@
     const minResistanceSpan = document.getElementById('minResistance');
     const mobileTips = document.getElementById('mobileTips');
     const iosTips = document.getElementById('iosTips');
-    const androidEdgeTip = document.getElementById('androidEdgeTip');
     const errorMessage = document.getElementById('errorMessage');
     
     // 图表相关变量
@@ -232,7 +238,7 @@
     let minResistance = Infinity;
     let startTime = null;
     
-    // 检测设备和浏览器兼容性
+    // 修改检测设备和浏览器兼容性函数
     function checkDeviceCompatibility() {
       const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
       const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -253,7 +259,7 @@
         // 仅当Android用户使用非推荐浏览器时显示Edge提示
         androidEdgeTip.style.display = 'block';
       }
-      
+
       // 检查Web Bluetooth支持
       if (!navigator.bluetooth) {
         if (isIOS) {
@@ -378,8 +384,6 @@
           errorMsg = 'Android设备需要开启位置服务才能使用蓝牙功能';
         } else if (error.message.includes('User cancelled')) {
           errorMsg = '用户取消了设备选择';
-        } else if (error.message.includes('GATT Server is disconnected')) {
-          errorMsg = '蓝牙连接已断开，请重试';
         }
         
         showError(errorMsg);
@@ -472,9 +476,11 @@
       resistanceChart.update();
     }
 
-    // 初始化
+     // 修改初始化函数
     function initializeApp() {
       initChart();
+      // 获取新增的提示元素
+      const androidEdgeTip = document.getElementById('androidEdgeTip');
       checkDeviceCompatibility();
     }
 
