@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>ESP32蓝牙电阻测量系统</title>
+  <title>ESP32蓝牙实时电阻测量系统</title>
   <style>
     * {
       box-sizing: border-box;
@@ -94,34 +94,70 @@
       background-color: #fff;
     }
     
-    #mobileTips {
+    .info-panel {
       margin: 15px;
-      padding: 10px;
-      background-color: #fff9e6;
+      padding: 15px;
       border-radius: 5px;
       font-size: 0.9rem;
+      text-align: left;
+    }
+    
+    #mobileTips {
+      background-color: #fff9e6;
       color: #666;
       display: none;
     }
     
     #iosTips {
-      margin: 15px;
-      padding: 10px;
       background-color: #e6f3ff;
-      border-radius: 5px;
-      font-size: 0.9rem;
       color: #0066cc;
       display: none;
     }
     
+    #androidTips {
+      background-color: #e8f5e9;
+      color: #2e7d32;
+      display: none;
+    }
+    
     #errorMessage {
-      margin: 15px;
-      padding: 10px;
       background-color: #ffebee;
-      border-radius: 5px;
-      font-size: 0.9rem;
       color: #c62828;
       display: none;
+    }
+    
+    .browser-links {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    
+    .browser-link {
+      display: inline-block;
+      padding: 8px 12px;
+      background-color: #4285F4;
+      color: white;
+      border-radius: 4px;
+      text-decoration: none;
+      font-size: 0.8rem;
+    }
+    
+    .browser-link:hover {
+      opacity: 0.9;
+    }
+    
+    .browser-link.chrome {
+      background-color: #4285F4;
+    }
+    
+    .browser-link.edge {
+      background-color: #0078D7;
+    }
+    
+    .browser-link.firefox {
+      background-color: #FF7139;
     }
     
     /* 平板和桌面布局 */
@@ -148,6 +184,10 @@
         width: 90%;
         max-width: 1000px;
       }
+      
+      .browser-links {
+        justify-content: flex-start;
+      }
     }
   </style>
   <!-- 引入Chart.js库 -->
@@ -157,16 +197,28 @@
 
   <h1>ESP32蓝牙实时电阻测量系统</h1>
 
-  <div id="mobileTips">
-    移动端使用提示：请确保蓝牙已开启，并授予浏览器蓝牙权限。Android设备需要开启位置服务才能使用蓝牙功能。
+  <div id="mobileTips" class="info-panel">
+    <strong>移动端使用提示：</strong>请确保蓝牙已开启，并授予浏览器蓝牙权限。Android设备需要开启位置服务才能使用蓝牙功能。
   </div>
   
-  <div id="iosTips">
-    iOS用户提示：苹果设备需要安装支持Web Bluetooth的浏览器(如Bluefy)才能连接ESP32设备。<br>
-    <a href="https://apps.apple.com/us/app/bluefy-web-ble-browser/id1492822055" target="_blank">点击下载Bluefy浏览器</a>
+  <div id="iosTips" class="info-panel">
+    <strong>iOS用户提示：</strong>苹果设备需要安装支持Web Bluetooth的浏览器(如Bluefy)才能连接ESP32设备。<br>
+    <a href="https://apps.apple.com/us/app/bluefy-web-ble-browser/id1492822055" target="_blank" class="browser-link">点击下载Bluefy浏览器</a>
   </div>
   
-  <div id="errorMessage"></div>
+  <div id="androidTips" class="info-panel">
+    <strong>Android用户提示：</strong>请使用以下兼容浏览器以获得最佳体验（点击下载）：
+    <div class="browser-links">
+      <a href="https://play.google.com/store/apps/details?id=com.android.chrome" target="_blank" class="browser-link chrome">下载Chrome浏览器</a>
+      <a href="https://play.google.com/store/apps/details?id=com.microsoft.emmx" target="_blank" class="browser-link edge">下载Edge浏览器</a>
+      <a href="https://play.google.com/store/apps/details?id=org.mozilla.firefox" target="_blank" class="browser-link firefox">下载Firefox浏览器</a>
+    </div>
+    <p style="margin-top: 10px; font-size: 0.8rem;">
+      <strong>注意：</strong>使用前请确保已开启位置服务，并在浏览器设置中授予位置权限。
+    </p>
+  </div>
+  
+  <div id="errorMessage" class="info-panel"></div>
 
   <div class="button-container">
     <button id="connectButton">连接ESP32蓝牙设备</button>
@@ -203,6 +255,7 @@
     const minResistanceSpan = document.getElementById('minResistance');
     const mobileTips = document.getElementById('mobileTips');
     const iosTips = document.getElementById('iosTips');
+    const androidTips = document.getElementById('androidTips');
     const errorMessage = document.getElementById('errorMessage');
     
     // 图表相关变量
@@ -230,24 +283,42 @@
       const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
       const isAndroid = /Android/i.test(navigator.userAgent);
       const isChrome = /Chrome/i.test(navigator.userAgent);
+      const isEdge = /Edg/i.test(navigator.userAgent);
+      const isFirefox = /Firefox/i.test(navigator.userAgent);
       
       // 显示移动端提示
       if (isMobile) {
         mobileTips.style.display = 'block';
       }
       
+      // 显示平台特定提示
+      if (isIOS) {
+        iosTips.style.display = 'block';
+      } else if (isAndroid) {
+        androidTips.style.display = 'block';
+      }
+      
       // 检查Web Bluetooth支持
       if (!navigator.bluetooth) {
         if (isIOS) {
-          iosTips.style.display = 'block';
-          connectButton.disabled = true;
           showError('iOS设备需要使用支持Web Bluetooth的浏览器(如Bluefy)');
-        } else if (isAndroid && !isChrome) {
-          showError('请使用最新版Chrome浏览器以获得最佳蓝牙支持');
+          connectButton.disabled = true;
+        } else if (isAndroid && !(isChrome || isEdge || isFirefox)) {
+          showError('请使用Chrome、Edge或Firefox浏览器以获得蓝牙支持');
+          connectButton.disabled = true;
         } else {
           showError('您的浏览器不支持Web Bluetooth功能');
+          connectButton.disabled = true;
         }
         return false;
+      }
+      
+      // Android特定检查
+      if (isAndroid) {
+        if (!isChrome && !isEdge && !isFirefox) {
+          showError('当前浏览器可能不支持蓝牙功能，请使用推荐浏览器');
+          return false;
+        }
       }
       
       return true;
@@ -359,6 +430,8 @@
           errorMsg = 'Android设备需要开启位置服务才能使用蓝牙功能';
         } else if (error.message.includes('User cancelled')) {
           errorMsg = '用户取消了设备选择';
+        } else if (error.message.includes('GATT Server is disconnected')) {
+          errorMsg = '蓝牙连接已断开，请重试';
         }
         
         showError(errorMsg);
