@@ -140,6 +140,19 @@
       font-weight: bold;
     }
     
+    #debugInfo {
+      margin: 15px;
+      padding: 10px;
+      background-color: #f5f5f5;
+      border-radius: 5px;
+      font-size: 0.8rem;
+      color: #333;
+      text-align: left;
+      display: none;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    
     /* 平板和桌面布局 */
     @media (min-width: 768px) {
       body {
@@ -186,10 +199,13 @@
   </div>
   
   <div id="errorMessage"></div>
+  
+  <div id="debugInfo"></div>
 
   <div class="button-container">
     <button id="connectButton">连接ESP32蓝牙设备</button>
     <button id="disconnectButton" disabled>断开连接</button>
+    <button id="debugButton" style="background-color: #6c757d; color: white;">调试信息</button>
   </div>
 
   <div class="data-container">
@@ -217,6 +233,7 @@
     let characteristic = null;
     const connectButton = document.getElementById('connectButton');
     const disconnectButton = document.getElementById('disconnectButton');
+    const debugButton = document.getElementById('debugButton');
     const resistanceSpan = document.getElementById('resistance');
     const maxResistanceSpan = document.getElementById('maxResistance');
     const minResistanceSpan = document.getElementById('minResistance');
@@ -224,6 +241,14 @@
     const iosTips = document.getElementById('iosTips');
     const androidEdgeTip = document.getElementById('androidEdgeTip');
     const errorMessage = document.getElementById('errorMessage');
+    const debugInfo = document.getElementById('debugInfo');
+    
+    // 调试日志
+    function logDebug(message) {
+      const timestamp = new Date().toLocaleTimeString();
+      debugInfo.innerHTML += `[${timestamp}] ${message}<br>`;
+      console.log(message);
+    }
     
     // 图表相关变量
     let resistanceChart;
@@ -295,6 +320,7 @@
     function showError(message) {
       errorMessage.textContent = message;
       errorMessage.style.display = 'block';
+      logDebug(`错误: ${message}`);
     }
     
     // 隐藏错误信息
@@ -348,67 +374,100 @@
       });
     }
     
-    // 连接函数
+    // 连接函数 - 完全重写的版本
     async function connectToESP32() {
       // 先检查兼容性
       const isCompatible = checkDeviceCompatibility();
       if (!isCompatible) return;
       
       try {
-    connectButton.disabled = true;
-    disconnectButton.disabled = false;
-    hideError();
-    
-    resetData();
-    
-    // 修改为更宽松的设备过滤
-    bluetoothDevice = await navigator.bluetooth.requestDevice({
-      acceptAllDevices: true,  // 先接受所有设备
-      optionalServices: ['00001234-0000-1000-8000-00805f9b34fb']
-    });
+        connectButton.disabled = true;
+        disconnectButton.disabled = false;
+        hideError();
+        logDebug('开始连接流程...');
+        
+        // 重置数据和图表
+        resetData();
+        
+        // 第一步：请求蓝牙设备
+        logDebug('正在请求蓝牙设备...');
+        bluetoothDevice = await navigator.bluetooth.requestDevice({
+          acceptAllDevices: true,
+          optionalServices: ['00001234-0000-1000-8000-00805f9b34fb']
+        });
+        logDebug(`找到设备: ${bluetoothDevice.name || '未知设备'}`);
 
-    bluetoothDevice.addEventListener('gattserverdisconnected', onDisconnected);
-    
-    // 增加连接超时处理
-    const connectionTimeout = setTimeout(() => {
-      throw new Error('连接超时，请重试');
-    }, 10000);
-    
-    const server = await bluetoothDevice.gatt.connect();
-    clearTimeout(connectionTimeout);
-
-        // 增加服务发现重试机制
-    let service, characteristic;
-    try {
-      service = await server.getPrimaryService('00001234-0000-1000-8000-00805f9b34fb');
-      characteristic = await service.getCharacteristic('00004321-0000-1000-8000-00805f9b34fb');
-    } catch (serviceError) {
-      console.log('尝试获取服务失败，正在列出所有服务...');
-      const services = await server.getPrimaryServices();
-      console.log('发现的服务:', services.map(s => s.uuid));
-      throw serviceError;
-    }
-    
-    await characteristic.startNotifications();
-    characteristic.addEventListener('characteristicvaluechanged', updateResistanceValue);
-    
-    connectButton.textContent = '已连接';
-    startTime = Date.now();
-  }  catch (error) {
-        console.error('连接失败:', error);
+        bluetoothDevice.addEventListener('gattserverdisconnected', onDisconnected);
+        
+        // 第二步：连接GATT服务器（带超时）
+        logDebug('正在连接GATT服务器...');
+        let server;
+        try {
+          server = await Promise.race([
+            bluetoothDevice.gatt.connect(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('连接超时(10秒)')), 10000))
+          ]);
+          logDebug('GATT服务器连接成功');
+        } catch (connectError) {
+          logDebug(`GATT服务器连接失败: ${connectError.message}`);
+          throw connectError;
+        }
+        
+        // 第三步：发现服务（带重试机制）
+        logDebug('正在发现服务...');
+        let service;
+        let retryCount = 0;
+        const maxRetries = 3;
+        
+        while (retryCount < maxRetries) {
+          try {
+            service = await server.getPrimaryService('00001234-0000-1000-8000-00805f9b34fb');
+            logDebug('服务发现成功');
+            break;
+          } catch (serviceError) {
+            retryCount++;
+            if (retryCount >= maxRetries) {
+              // 列出所有可用服务用于调试
+              const services = await server.getPrimaryServices();
+              logDebug(`所有可用服务: ${services.map(s => s.uuid).join(', ')}`);
+              throw new Error(`无法找到指定服务(尝试 ${maxRetries} 次)`);
+            }
+            logDebug(`服务发现失败(尝试 ${retryCount}/${maxRetries}), 1秒后重试...`);
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        }
+        
+        // 第四步：获取特征
+        logDebug('正在获取特征...');
+        characteristic = await service.getCharacteristic('00004321-0000-1000-8000-00805f9b34fb');
+        logDebug('特征获取成功');
+        
+        // 第五步：启动通知
+        logDebug('正在启动通知...');
+        await characteristic.startNotifications();
+        characteristic.addEventListener('characteristicvaluechanged', updateResistanceValue);
+        logDebug('通知已启动，连接完成');
+        
+        connectButton.textContent = '已连接';
+        startTime = Date.now();
+      } catch (error) {
+        logDebug(`连接过程中出错: ${error.message}`);
+        console.error('完整错误:', error);
         onDisconnected();
         
         // 特定错误处理
         let errorMsg = '连接失败: ' + error.message;
         
-        if (error.message.includes('not found')) {
-          errorMsg = '未找到ESP32设备，请确保设备已开启蓝牙并处于可发现模式';
+        if (error.message.includes('not found') || error.message.includes('无法找到指定服务')) {
+          errorMsg = '未找到ESP32设备或服务不匹配，请检查设备配置';
         } else if (error.message.includes('permission')) {
           errorMsg = '请授予浏览器蓝牙访问权限';
         } else if (error.message.includes('location')) {
           errorMsg = 'Android设备需要开启位置服务才能使用蓝牙功能';
         } else if (error.message.includes('User cancelled')) {
           errorMsg = '用户取消了设备选择';
+        } else if (error.message.includes('超时')) {
+          errorMsg = '连接超时，请确保设备在范围内并重试';
         }
         
         showError(errorMsg);
@@ -420,11 +479,12 @@
       if (!bluetoothDevice) return;
       
       try {
+        logDebug('正在断开连接...');
         if (bluetoothDevice.gatt.connected) {
           bluetoothDevice.gatt.disconnect();
         }
       } catch (error) {
-        console.error('断开失败:', error);
+        logDebug(`断开失败: ${error.message}`);
         showError('断开失败: ' + error.message);
       } finally {
         onDisconnected();
@@ -433,6 +493,7 @@
 
     // 断开后的清理
     function onDisconnected() {
+      logDebug('正在清理断开连接...');
       if (characteristic) {
         characteristic.removeEventListener('characteristicvaluechanged', updateResistanceValue);
         characteristic = null;
@@ -444,16 +505,16 @@
       }
 
       // 添加重连选项
-    if (!errorMessage.textContent.includes('用户取消了设备选择')) {
+      if (!errorMessage.textContent.includes('用户取消了设备选择')) {
         connectButton.textContent = '重新连接';
-     }
+      }
       
       connectButton.disabled = false;
       disconnectButton.disabled = true;
-      connectButton.textContent = '连接ESP32蓝牙设备';
       resistanceSpan.textContent = '-- Ω';
       maxResistanceSpan.textContent = '-- Ω';
       minResistanceSpan.textContent = '-- Ω';
+      logDebug('断开连接清理完成');
     }
 
     // 重置数据
@@ -466,50 +527,63 @@
       maxResistance = -Infinity;
       minResistance = Infinity;
       startTime = null;
+      logDebug('数据已重置');
     }
     
     // 数据更新函数
     function updateResistanceValue(event) {
-      const valueStr = new TextDecoder().decode(event.target.value);
-      const value = parseFloat(valueStr);
-      
-      if (isNaN(value)) return;
-      
-      // 更新当前值显示
-      resistanceSpan.textContent = value.toFixed(2) + ' Ω';
-      
-      // 更新时间
-      const currentTime = (Date.now() - startTime) / 1000; // 转换为秒
-      
-      // 更新统计数据
-      if (value > maxResistance) {
-        maxResistance = value;
-        maxResistanceSpan.textContent = value.toFixed(2) + ' Ω';
+      try {
+        const valueStr = new TextDecoder().decode(event.target.value);
+        const value = parseFloat(valueStr);
+        
+        if (isNaN(value)) {
+          logDebug(`收到无效数据: ${valueStr}`);
+          return;
+        }
+        
+        // 更新当前值显示
+        resistanceSpan.textContent = value.toFixed(2) + ' Ω';
+        
+        // 更新时间
+        const currentTime = (Date.now() - startTime) / 1000; // 转换为秒
+        
+        // 更新统计数据
+        if (value > maxResistance) {
+          maxResistance = value;
+          maxResistanceSpan.textContent = value.toFixed(2) + ' Ω';
+        }
+        if (value < minResistance) {
+          minResistance = value;
+          minResistanceSpan.textContent = value.toFixed(2) + ' Ω';
+        }
+        
+        // 添加到图表数据
+        chartData.labels.push(currentTime.toFixed(1));
+        chartData.datasets[0].data.push(value);
+        
+        // 限制数据点数量以避免性能问题
+        const maxDataPoints = 100;
+        if (chartData.labels.length > maxDataPoints) {
+          chartData.labels.shift();
+          chartData.datasets[0].data.shift();
+        }
+        
+        // 更新图表
+        resistanceChart.update();
+      } catch (error) {
+        logDebug(`数据处理错误: ${error.message}`);
       }
-      if (value < minResistance) {
-        minResistance = value;
-        minResistanceSpan.textContent = value.toFixed(2) + ' Ω';
-      }
-      
-      // 添加到图表数据
-      chartData.labels.push(currentTime.toFixed(1));
-      chartData.datasets[0].data.push(value);
-      
-      // 限制数据点数量以避免性能问题
-      const maxDataPoints = 100;
-      if (chartData.labels.length > maxDataPoints) {
-        chartData.labels.shift();
-        chartData.datasets[0].data.shift();
-      }
-      
-      // 更新图表
-      resistanceChart.update();
     }
 
     // 初始化应用
     function initializeApp() {
       initChart();
       checkDeviceCompatibility();
+      
+      // 调试按钮事件
+      debugButton.addEventListener('click', () => {
+        debugInfo.style.display = debugInfo.style.display === 'none' ? 'block' : 'none';
+      });
     }
 
     // 事件绑定
