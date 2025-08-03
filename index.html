@@ -114,7 +114,7 @@
       display: none;
     }
     
-    #androidTips {
+    #androidEdgeTip {
       background-color: #e8f5e9;
       color: #2e7d32;
       display: none;
@@ -124,40 +124,6 @@
       background-color: #ffebee;
       color: #c62828;
       display: none;
-    }
-    
-    .browser-links {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: center;
-      gap: 10px;
-      margin-top: 10px;
-    }
-    
-    .browser-link {
-      display: inline-block;
-      padding: 8px 12px;
-      background-color: #4285F4;
-      color: white;
-      border-radius: 4px;
-      text-decoration: none;
-      font-size: 0.8rem;
-    }
-    
-    .browser-link:hover {
-      opacity: 0.9;
-    }
-    
-    .browser-link.chrome {
-      background-color: #4285F4;
-    }
-    
-    .browser-link.edge {
-      background-color: #0078D7;
-    }
-    
-    .browser-link.firefox {
-      background-color: #FF7139;
     }
     
     /* 平板和桌面布局 */
@@ -184,10 +150,6 @@
         width: 90%;
         max-width: 1000px;
       }
-      
-      .browser-links {
-        justify-content: flex-start;
-      }
     }
   </style>
   <!-- 引入Chart.js库 -->
@@ -203,19 +165,12 @@
   
   <div id="iosTips" class="info-panel">
     <strong>iOS用户提示：</strong>苹果设备需要安装支持Web Bluetooth的浏览器(如Bluefy)才能连接ESP32设备。<br>
-    <a href="https://apps.apple.com/us/app/bluefy-web-ble-browser/id1492822055" target="_blank" class="browser-link">点击下载Bluefy浏览器</a>
+    <a href="https://apps.apple.com/us/app/bluefy-web-ble-browser/id1492822055" target="_blank" style="color: #0066cc; text-decoration: underline;">点击下载Bluefy浏览器</a>
   </div>
   
-  <div id="androidTips" class="info-panel">
-    <strong>Android用户提示：</strong>请使用以下兼容浏览器以获得最佳体验（点击下载）：
-    <div class="browser-links">
-      <a href="https://play.google.com/store/apps/details?id=com.android.chrome" target="_blank" class="browser-link chrome">下载Chrome浏览器</a>
-      <a href="https://play.google.com/store/apps/details?id=com.microsoft.emmx" target="_blank" class="browser-link edge">下载Edge浏览器</a>
-      <a href="https://play.google.com/store/apps/details?id=org.mozilla.firefox" target="_blank" class="browser-link firefox">下载Firefox浏览器</a>
-    </div>
-    <p style="margin-top: 10px; font-size: 0.8rem;">
-      <strong>注意：</strong>使用前请确保已开启位置服务，并在浏览器设置中授予位置权限。
-    </p>
+  <div id="androidEdgeTip" class="info-panel">
+    <strong>浏览器兼容性提示：</strong>请使用Microsoft Edge浏览器访问本系统。如果您没有安装Edge浏览器，请到手机应用商店搜索"Microsoft Edge"进行下载。<br><br>
+    <strong>注意：</strong>Chrome、Edge和Firefox浏览器均可正常使用，如果您正在使用这些浏览器但仍看到此提示，请忽略。
   </div>
   
   <div id="errorMessage" class="info-panel"></div>
@@ -255,7 +210,7 @@
     const minResistanceSpan = document.getElementById('minResistance');
     const mobileTips = document.getElementById('mobileTips');
     const iosTips = document.getElementById('iosTips');
-    const androidTips = document.getElementById('androidTips');
+    const androidEdgeTip = document.getElementById('androidEdgeTip');
     const errorMessage = document.getElementById('errorMessage');
     
     // 图表相关变量
@@ -282,8 +237,8 @@
       const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
       const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
       const isAndroid = /Android/i.test(navigator.userAgent);
-      const isChrome = /Chrome/i.test(navigator.userAgent);
       const isEdge = /Edg/i.test(navigator.userAgent);
+      const isChrome = /Chrome/i.test(navigator.userAgent);
       const isFirefox = /Firefox/i.test(navigator.userAgent);
       
       // 显示移动端提示
@@ -294,8 +249,9 @@
       // 显示平台特定提示
       if (isIOS) {
         iosTips.style.display = 'block';
-      } else if (isAndroid) {
-        androidTips.style.display = 'block';
+      } else if (isAndroid && !isEdge && !isChrome && !isFirefox) {
+        // 仅当Android用户使用非推荐浏览器时显示Edge提示
+        androidEdgeTip.style.display = 'block';
       }
       
       // 检查Web Bluetooth支持
@@ -303,22 +259,14 @@
         if (isIOS) {
           showError('iOS设备需要使用支持Web Bluetooth的浏览器(如Bluefy)');
           connectButton.disabled = true;
-        } else if (isAndroid && !(isChrome || isEdge || isFirefox)) {
-          showError('请使用Chrome、Edge或Firefox浏览器以获得蓝牙支持');
+        } else if (isAndroid) {
+          showError('当前浏览器不支持蓝牙功能，请使用Edge、Chrome或Firefox浏览器');
           connectButton.disabled = true;
         } else {
           showError('您的浏览器不支持Web Bluetooth功能');
           connectButton.disabled = true;
         }
         return false;
-      }
-      
-      // Android特定检查
-      if (isAndroid) {
-        if (!isChrome && !isEdge && !isFirefox) {
-          showError('当前浏览器可能不支持蓝牙功能，请使用推荐浏览器');
-          return false;
-        }
       }
       
       return true;
