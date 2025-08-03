@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>ESP32蓝牙电阻测量系统</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      padding: 0;
+      text-align: center;
+      -webkit-text-size-adjust: 100%;
+    }
+    
+    h1 {
+      font-size: 1.5rem;
+      margin-bottom: 20px;
+      color: #333;
+    }
+    
+    .button-container {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    
+    button {
+      padding: 12px 24px;
+      font-size: 16px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      min-width: 150px;
+      transition: all 0.3s;
+    }
+    
+    #connectButton {
+      background-color: #4CAF50;
+      color: white;
+    }
+    
+    #disconnectButton {
+      background-color: #ff4444;
+      color: white;
+    }
+    
+    button:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+      opacity: 0.7;
+    }
+    
+    .data-container {
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+      margin: 20px 0;
+    }
+    
+    .data-panel {
+      border: 1px solid #ddd;
+      padding: 15px;
+      border-radius: 8px;
+      background-color: #f9f9f9;
+    }
+    
+    .data-panel h3 {
+      font-size: 1rem;
+      margin-bottom: 10px;
+      color: #555;
+    }
+    
+    #resistance, #maxResistance, #minResistance {
+      font-size: 1.5rem;
+      font-weight: bold;
+      color: #007BFF;
+    }
+    
+    .chart-container {
+      width: 100%;
+      margin: 20px auto;
+      padding: 10px;
+      border: 1px solid #eee;
+      border-radius: 8px;
+      background-color: #fff;
+    }
+    
+    #mobileTips {
+      margin: 15px;
+      padding: 10px;
+      background-color: #fff9e6;
+      border-radius: 5px;
+      font-size: 0.9rem;
+      color: #666;
+      display: none;
+    }
+    
+    /* 平板和桌面布局 */
+    @media (min-width: 768px) {
+      body {
+        margin: 30px;
+      }
+      
+      h1 {
+        font-size: 2rem;
+      }
+      
+      .data-container {
+        flex-direction: row;
+        justify-content: center;
+        gap: 30px;
+      }
+      
+      .data-panel {
+        min-width: 180px;
+      }
+      
+      .chart-container {
+        width: 90%;
+        max-width: 1000px;
+      }
+    }
+  </style>
+  <!-- 引入Chart.js库 -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+  <h1>ESP32蓝牙实时电阻测量系统</h1>
+
+  <div id="mobileTips">
+    移动端使用提示：请确保蓝牙已开启，并授予浏览器蓝牙权限。Android设备需要开启位置服务才能使用蓝牙功能。
+  </div>
+
+  <div class="button-container">
+    <button id="connectButton">连接ESP32蓝牙设备</button>
+    <button id="disconnectButton" disabled>断开连接</button>
+  </div>
+
+  <div class="data-container">
+    <div class="data-panel">
+      <h3>当前电阻值</h3>
+      <div id="resistance">-- Ω</div>
+    </div>
+    <div class="data-panel">
+      <h3>最大电阻值</h3>
+      <div id="maxResistance">-- Ω</div>
+    </div>
+    <div class="data-panel">
+      <h3>最小电阻值</h3>
+      <div id="minResistance">-- Ω</div>
+    </div>
+  </div>
+
+  <div class="chart-container">
+    <canvas id="resistanceChart"></canvas>
+  </div>
+
+  <script>
+    // 全局变量
+    let bluetoothDevice = null;
+    let characteristic = null;
+    const connectButton = document.getElementById('connectButton');
+    const disconnectButton = document.getElementById('disconnectButton');
+    const resistanceSpan = document.getElementById('resistance');
+    const maxResistanceSpan = document.getElementById('maxResistance');
+    const minResistanceSpan = document.getElementById('minResistance');
+    const mobileTips = document.getElementById('mobileTips');
+    
+    // 图表相关变量
+    let resistanceChart;
+    let chartData = {
+      labels: [],  // 时间轴
+      datasets: [{
+        label: '电阻值 (Ω)',
+        data: [],
+        borderColor: 'rgb(75, 192, 192)',
+        backgroundColor: 'rgba(75, 192, 192, 0.1)',
+        tension: 0.1,
+        fill: true
+      }]
+    };
+    
+    // 数据统计
+    let maxResistance = -Infinity;
+    let minResistance = Infinity;
+    let startTime = null;
+    
+    // 检测移动设备
+    if (/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+      mobileTips.style.display = 'block';
+    }
+    
+    // 初始化图表
+    function initChart() {
+      const ctx = document.getElementById('resistanceChart').getContext('2d');
+      resistanceChart = new Chart(ctx, {
+        type: 'line',
+        data: chartData,
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          scales: {
+            x: {
+              title: {
+                display: true,
+                text: '时间 (秒)',
+                font: {
+                  size: 14
+                }
+              },
+              ticks: {
+                maxRotation: 45,
+                minRotation: 45
+              }
+            },
+            y: {
+              title: {
+                display: true,
+                text: '电阻值 (Ω)',
+                font: {
+                  size: 14
+                }
+              }
+            }
+          },
+          plugins: {
+            legend: {
+              labels: {
+                font: {
+                  size: 14
+                }
+              }
+            }
+          }
+        }
+      });
+    }
+    
+    // 连接函数
+    async function connectToESP32() {
+      try {
+        connectButton.disabled = true;
+        disconnectButton.disabled = false;
+        
+        // 重置数据和图表
+        resetData();
+        
+        bluetoothDevice = await navigator.bluetooth.requestDevice({
+          filters: [{ 
+            name: 'ESP32_StrainGauge',
+            services: ['00001234-0000-1000-8000-00805f9b34fb']
+          }],
+          optionalServices: ['00001234-0000-1000-8000-00805f9b34fb']
+        });
+
+        bluetoothDevice.addEventListener('gattserverdisconnected', onDisconnected);
+        
+        const server = await bluetoothDevice.gatt.connect();
+        const service = await server.getPrimaryService('00001234-0000-1000-8000-00805f9b34fb');
+        characteristic = await service.getCharacteristic('00004321-0000-1000-8000-00805f9b34fb');
+        
+        await characteristic.startNotifications();
+        characteristic.addEventListener('characteristicvaluechanged', updateResistanceValue);
+        
+        connectButton.textContent = '已连接';
+        startTime = Date.now();
+      } catch (error) {
+        console.error('连接失败:', error);
+        onDisconnected();
+        alert('连接失败: ' + error.message);
+        
+        // 移动端特定错误提示
+        if (/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+          if (error.message.includes('not found')) {
+            alert('请确保ESP32设备已开启蓝牙并处于可发现模式');
+          } else if (error.message.includes('permission')) {
+            alert('请授予浏览器蓝牙访问权限');
+          } else if (error.message.includes('location')) {
+            alert('Android设备需要开启位置服务才能使用蓝牙功能');
+          }
+        }
+      }
+    }
+
+    // 断开函数
+    function disconnectFromESP32() {
+      if (!bluetoothDevice) return;
+      
+      try {
+        if (bluetoothDevice.gatt.connected) {
+          bluetoothDevice.gatt.disconnect();
+        }
+      } catch (error) {
+        console.error('断开失败:', error);
+      } finally {
+        onDisconnected();
+      }
+    }
+
+    // 断开后的清理
+    function onDisconnected() {
+      if (characteristic) {
+        characteristic.removeEventListener('characteristicvaluechanged', updateResistanceValue);
+        characteristic = null;
+      }
+      
+      if (bluetoothDevice) {
+        bluetoothDevice.removeEventListener('gattserverdisconnected', onDisconnected);
+        bluetoothDevice = null;
+      }
+      
+      connectButton.disabled = false;
+      disconnectButton.disabled = true;
+      connectButton.textContent = '连接ESP32蓝牙设备';
+      resistanceSpan.textContent = '-- Ω';
+      maxResistanceSpan.textContent = '-- Ω';
+      minResistanceSpan.textContent = '-- Ω';
+    }
+
+    // 重置数据
+    function resetData() {
+      chartData.labels = [];
+      chartData.datasets[0].data = [];
+      if (resistanceChart) {
+        resistanceChart.update();
+      }
+      maxResistance = -Infinity;
+      minResistance = Infinity;
+      startTime = null;
+    }
+    
+    // 数据更新函数
+    function updateResistanceValue(event) {
+      const valueStr = new TextDecoder().decode(event.target.value);
+      const value = parseFloat(valueStr);
+      
+      if (isNaN(value)) return;
+      
+      // 更新当前值显示
+      resistanceSpan.textContent = value.toFixed(2) + ' Ω';
+      
+      // 更新时间
+      const currentTime = (Date.now() - startTime) / 1000; // 转换为秒
+      
+      // 更新统计数据
+      if (value > maxResistance) {
+        maxResistance = value;
+        maxResistanceSpan.textContent = value.toFixed(2) + ' Ω';
+      }
+      if (value < minResistance) {
+        minResistance = value;
+        minResistanceSpan.textContent = value.toFixed(2) + ' Ω';
+      }
+      
+      // 添加到图表数据
+      chartData.labels.push(currentTime.toFixed(1));
+      chartData.datasets[0].data.push(value);
+      
+      // 限制数据点数量以避免性能问题
+      const maxDataPoints = 100;
+      if (chartData.labels.length > maxDataPoints) {
+        chartData.labels.shift();
+        chartData.datasets[0].data.shift();
+      }
+      
+      // 更新图表
+      resistanceChart.update();
+    }
+
+    // 初始化图表
+    document.addEventListener('DOMContentLoaded', initChart);
+    
+    // 事件绑定
+    connectButton.addEventListener('click', connectToESP32);
+    disconnectButton.addEventListener('click', disconnectFromESP32);
+  </script>
+
+</body>
+</html>
